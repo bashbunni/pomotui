@@ -1,13 +1,21 @@
 package model
 
 import (
+	"log"
+	"strconv"
+	"time"
+
 	"github.com/charlieroth/pomotui/state"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/timer"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/charm/kv"
+	"github.com/pkg/errors"
 )
+
+const ISOFormat = "2006-01-02"
 
 type ChoiceModel struct {
 	choices  []string
@@ -90,6 +98,8 @@ type Model struct {
 	BreakDuration     ChoiceModel
 	LongBreakDuration ChoiceModel
 	SessionCount      ChoiceModel
+	db *kv.KV
+	totalSessions int
 
 	State              string
 	CurrentWorkSession int
@@ -101,15 +111,50 @@ func New() Model {
 	m := Model{
 		KeyMap:             NewKeyMap(),
 		Help:               help.NewModel(),
-		WorkingDuration:    NewChoiceModel([]string{"15", "20", "25", "30", "45", "50", "60", "90"}),
-		BreakDuration:      NewChoiceModel([]string{"5", "7", "10"}),
+		WorkingDuration:    NewChoiceModel([]string{"1", "15", "20", "25", "30", "45", "50", "60", "90"}),
+		BreakDuration:      NewChoiceModel([]string{"1", "5", "7", "10"}),
 		LongBreakDuration:  NewChoiceModel([]string{"15", "20", "25", "30"}),
 		SessionCount:       NewChoiceModel([]string{"4", "5", "6", "7"}),
 		State:              state.ChooseWorkingDuration,
 		CurrentWorkSession: 0,
 		TimerInitialized:   false,
 	}
+
+	db, err := kv.OpenWithDefaults("pomotui")
+	if err != nil {
+		panic(err)
+	}
+	m.db = db
+	m.db.Sync()
+	if err := m.getTotalSessions(); err != nil {
+		log.Fatal(err)
+	}
 	return m
+}
+
+func (m *Model) calculateCurrentWorkSession() int {
+	sessionCount, err := strconv.Atoi(m.SessionCount.selected)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "unable to convert session count selection to int"))
+	}
+	m.CurrentWorkSession = m.totalSessions % sessionCount
+	return sessionCount
+}
+
+func (m *Model) getTotalSessions() error {
+	byteOfSessions, err := m.db.Get([]byte(time.Now().Format(ISOFormat)))
+	if err != nil {
+		m.totalSessions = 0
+		return errors.Wrap(err, "unable to get value from DB")
+	}
+	if byteOfSessions != nil {
+		m.totalSessions, err = strconv.Atoi(string(byteOfSessions))
+		if err != nil {
+			return errors.Wrap(err, "unable to convert sessions from DB to int")
+		}
+	}
+	log.Print(m.totalSessions)
+	return nil
 }
 
 func (m Model) HasSelectedWorkingDuration() bool {

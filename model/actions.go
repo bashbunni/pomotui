@@ -1,6 +1,8 @@
 package model
 
 import (
+	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -20,7 +22,6 @@ func HandleStartStop(m Model) (tea.Model, tea.Cmd) {
 		m.KeyMap.Start.SetEnabled(false)
 		return m, m.Timer.Init()
 	}
-
 	return m, m.Timer.Toggle()
 }
 
@@ -113,7 +114,8 @@ func HandleConfirm(m Model) (tea.Model, tea.Cmd) {
 		}
 
 		// transition into "working" state & set first working session timer
-		m.CurrentWorkSession = 1
+		m.calculateCurrentWorkSession()
+		log.Print(m.CurrentWorkSession)
 		m.State = state.Working
 		selectedTime, err := strconv.Atoi(m.WorkingDuration.selected)
 		if err != nil {
@@ -204,10 +206,9 @@ func HandleTimerStartStopMsg(m Model, msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func HandleTimerTimeout(m Model) (tea.Model, tea.Cmd) {
-	sessionCount, err := strconv.Atoi(m.SessionCount.selected)
-	if err != nil {
-		panic("Failed to convert work duration time to int")
-	}
+	sessionCount := m.calculateCurrentWorkSession()
+	m.totalSessions++
+	m.db.Set([]byte(time.Now().Format(ISOFormat)), []byte(fmt.Sprintf("%d", m.totalSessions)))
 
     // completed last working session, transition to long break
     if m.State == state.Working && m.CurrentWorkSession == sessionCount {
